@@ -41,9 +41,10 @@ __device__ Pair pairs[4] = { {1, 0}, {0, 1}, {-1, 0}, {0, -1} };
 
 class Pixel {
 public:
-	uint8_t life = 0;
+	uint8_t type = 0; //dead, plant, herbivore
 	uint8_t r = 0, g = 0, b = 0;
 	uint16_t x = 0, y = 0;
+	bool ate = false;
 	void setPos(uint16_t x, uint16_t y) {
 		this->x = x;
 		this->y = y;
@@ -53,19 +54,17 @@ public:
 		this->g = g;
 		this->b = b;
 	}
-	void draw(Uint32* pixel_ptr, SDL_PixelFormat* format) {
-		if (life > 0) {
+	uint8_t draw(Uint32* pixel_ptr, SDL_PixelFormat* format) {
+		if (type == 0 || (type == 2 && !ate)) {
+			pixel_ptr[y * WIDTH + x] = SDL_MapRGB(format, 0, 0, 0);
+		}
+		else {
 			pixel_ptr[y * WIDTH + x] = SDL_MapRGB(format, r, g, b);
-			life--;
-			if (life == 0) {
-				r = 0;
-				g = 0;
-				b = 0;
-			}
 		}
-		else if (r != 0 || g != 0 || b != 0) {
-			life = 3;
+		if (ate) {
+			ate = false;
 		}
+		return type;
 	}
 	__device__ Pair spread(curandState* state) {
 		Pair dir = pairs[curand(state) % 4];
@@ -112,11 +111,37 @@ __global__ void initCurand(unsigned int seed, curandState* state) {
 
 __global__ void spread(Pixel pixels[HEIGHT * WIDTH], curandState* state) {
 	Pixel* thisPixel = &pixels[threadIdx.x * WIDTH + blockIdx.x];
-	if (thisPixel->life > 0) {
-		Pair direction = thisPixel->spread(state);
-		Pixel* toSpread = &pixels[direction.y * WIDTH + direction.x];
-		if (toSpread->life == 0) {
+	Pair direction = thisPixel->spread(state);
+	Pixel* toSpread = &pixels[direction.y * WIDTH + direction.x];
+	switch(thisPixel->type) {
+	case 1:
+		if (toSpread->type == 0) {
 			toSpread->setColor(thisPixel->r + (curand(state) % 3 - 1), thisPixel->g + (curand(state) % 3 - 1), thisPixel->b + (curand(state) % 3 - 1));
+			toSpread->type = 1;
+		}
+		break;
+	case 2:
+		switch (toSpread->type) {
+		case 0:
+			toSpread->setColor(thisPixel->r, thisPixel->g, thisPixel->b);
+			toSpread->type = 2;
+			thisPixel->type = 0;
+			break;
+		case 1:
+			double rdiff = static_cast<float>(thisPixel->r) - static_cast<float>(toSpread->r);
+			double gdiff = static_cast<float>(thisPixel->g) - static_cast<float>(toSpread->g);
+			double bdiff = static_cast<float>(thisPixel->b) - static_cast<float>(toSpread->b);
+			if (sqrt(rdiff * rdiff + gdiff * bdiff + bdiff * bdiff) < 15.0) {
+				toSpread->setColor(thisPixel->r + (curand(state) % 3 - 1), thisPixel->g + (curand(state) % 3 - 1), thisPixel->b + (curand(state) % 3 - 1));
+				thisPixel->ate = true;
+			}
+			else {
+				toSpread->setColor(thisPixel->r, thisPixel->g, thisPixel->b);
+				thisPixel->type = 0;
+				toSpread->ate = true;
+			}
+			toSpread->type = 2;
+			break;
 		}
 	}
 }
@@ -159,6 +184,13 @@ int main(int argc, char* argv[]) {
 		first->r = 127;
 		first->g = 127;
 		first->b = 127;
+		first->type = 1;
+
+		first = &pixels[rand() % HEIGHT * WIDTH];
+		first->r = 127;
+		first->g = 127;
+		first->b = 127;
+		first->type = 2;
 
 		cudaSetDevice(0);
 		curandState* d_state;
@@ -226,9 +258,12 @@ int main(int argc, char* argv[]) {
 			drawStart = SDL_GetTicks();
 			SDL_LockTexture(texture, NULL, &txtPixels, &pitch);
 			pixel_ptr = (Uint32*)txtPixels;
+			first = NULL;
 			for (uint16_t i = 0; i < WIDTH; i++) {
 				for (uint16_t j = 0; j < HEIGHT; j++) {
-					pixels[j* WIDTH + i].draw(pixel_ptr, format);
+					if (pixels[j * WIDTH + i].draw(pixel_ptr, format) == 2) {
+						first = &pixels[j * WIDTH + i];
+					}
 				}
 			}
 			SDL_UnlockTexture(texture);
