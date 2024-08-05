@@ -44,6 +44,9 @@ public:
 	uint8_t type = 0; //dead, plant, herbivore
 	uint8_t r = 0, g = 0, b = 0;
 	uint16_t x = 0, y = 0;
+	uint8_t life = 0;
+	double edibility = 15;
+	static const uint8_t maxLife = 5;
 	bool ate = false;
 	void setPos(uint16_t x, uint16_t y) {
 		this->x = x;
@@ -131,16 +134,19 @@ __global__ void spread(Pixel pixels[HEIGHT * WIDTH], curandState* state) {
 			double rdiff = static_cast<float>(thisPixel->r) - static_cast<float>(toSpread->r);
 			double gdiff = static_cast<float>(thisPixel->g) - static_cast<float>(toSpread->g);
 			double bdiff = static_cast<float>(thisPixel->b) - static_cast<float>(toSpread->b);
-			if (sqrt(rdiff * rdiff + gdiff * bdiff + bdiff * bdiff) < 15.0) {
+			if (sqrt(rdiff * rdiff + gdiff * bdiff + bdiff * bdiff) < thisPixel->edibility) {
 				toSpread->setColor(thisPixel->r + (curand(state) % 3 - 1), thisPixel->g + (curand(state) % 3 - 1), thisPixel->b + (curand(state) % 3 - 1));
 				thisPixel->ate = true;
+				toSpread->type = 2;
+				toSpread->life = Pixel::maxLife;
+				toSpread->edibility = thisPixel->edibility + 2.0 * curand_uniform(state) - 1.0;
 			}
 			else {
-				toSpread->setColor(thisPixel->r, thisPixel->g, thisPixel->b);
-				thisPixel->type = 0;
-				toSpread->ate = true;
+				thisPixel->life -= 1;
+				if (thisPixel->life == 0) {
+					thisPixel->type = 0;
+				}
 			}
-			toSpread->type = 2;
 			break;
 		}
 	}
@@ -186,11 +192,8 @@ int main(int argc, char* argv[]) {
 		first->b = 127;
 		first->type = 1;
 
-		first = &pixels[rand() % HEIGHT * WIDTH];
-		first->r = 127;
-		first->g = 127;
-		first->b = 127;
-		first->type = 2;
+		int dead = 0;
+		bool spawned = false;
 
 		cudaSetDevice(0);
 		curandState* d_state;
@@ -258,13 +261,18 @@ int main(int argc, char* argv[]) {
 			drawStart = SDL_GetTicks();
 			SDL_LockTexture(texture, NULL, &txtPixels, &pitch);
 			pixel_ptr = (Uint32*)txtPixels;
-			first = NULL;
+			dead = 0;
 			for (uint16_t i = 0; i < WIDTH; i++) {
 				for (uint16_t j = 0; j < HEIGHT; j++) {
-					if (pixels[j * WIDTH + i].draw(pixel_ptr, format) == 2) {
-						first = &pixels[j * WIDTH + i];
+					if (pixels[j * WIDTH + i].draw(pixel_ptr, format) == 0) {
+						dead++;
 					}
 				}
+			}
+			if (dead == 0 && !spawned) {
+				first->type = 2;
+				first->life = Pixel::maxLife;
+				spawned = true;
 			}
 			SDL_UnlockTexture(texture);
 			SDL_RenderCopy(renderer, texture, NULL, NULL);
