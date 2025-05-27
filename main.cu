@@ -99,9 +99,6 @@ Pixel pixels[HEIGHT * WIDTH];
 Pixel* d_pixels;
 size_t p_size = sizeof(Pixel) * size_t(HEIGHT * WIDTH);
 
-SDL_Surface* infoSurface, * saveSurface;
-unsigned char* savePixels;
-
 
 void debug(int line, std::string file) {
 	std::cout << "Line " << line << " in file " << file << ": " << SDL_GetError() << std::endl;
@@ -169,9 +166,7 @@ int main(int argc, char* argv[]) {
 			debug(__LINE__, __FILE__);
 		}
 
-		infoSurface = SDL_GetWindowSurface(window);
 		SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
-		savePixels = new unsigned char[infoSurface->w * infoSurface->h * infoSurface->format->BytesPerPixel];
 
 		SDL_Texture* texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888,
 			SDL_TEXTUREACCESS_STREAMING, WIDTH, HEIGHT);
@@ -276,17 +271,10 @@ int main(int argc, char* argv[]) {
 			}
 			SDL_UnlockTexture(texture);
 			SDL_RenderCopy(renderer, texture, NULL, NULL);
-			SDL_RenderReadPixels(renderer, &infoSurface->clip_rect, infoSurface->format->format, savePixels, infoSurface->w * infoSurface->format->BytesPerPixel);
 			SDL_RenderPresent(renderer);
 			if (timing) {
 				std::cout << " draw time: " << SDL_GetTicks() - drawStart;
 			}
-
-
-			saveSurface = SDL_CreateRGBSurfaceFrom(savePixels, infoSurface->w, infoSurface->h, infoSurface->format->BitsPerPixel, infoSurface->w * infoSurface->format->BytesPerPixel,
-				infoSurface->format->Rmask, infoSurface->format->Gmask, infoSurface->format->Bmask, infoSurface->format->Amask);
-			//SDL_SaveBMP_RW(saveSurface, SDL_RWFromFile(("Images/Image" + std::to_string(counter) + ".bmp").c_str(), "wb"), 1);
-			SDL_FreeSurface(saveSurface);
 			counter++;
 
 			frameTime = SDL_GetTicks() - frameStart;
@@ -295,7 +283,6 @@ int main(int argc, char* argv[]) {
 			//std::cout << "Error: " << cudaGetErrorString(err) << std::endl;
 		}
 		//Clean up
-		delete[] savePixels;
 		SDL_FreeFormat(format);
 		cudaFree(d_pixels);
 		cudaFree(d_state);
